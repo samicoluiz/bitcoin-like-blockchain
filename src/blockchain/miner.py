@@ -41,8 +41,13 @@ class Miner:
         if transactions is None:
             transactions = self.blockchain.pending_transactions.copy()
         
-        if not transactions:
-            return None
+        # Adiciona transação de recompensa (Coinbase)
+        reward_tx = Transaction(
+            origem="coinbase",
+            destino=self.miner_address,
+            valor=50.0  # Recompensa fixa
+        )
+        transactions.insert(0, reward_tx)
         
         self.mining = True
         

@@ -157,6 +157,10 @@ class Node:
                     self.logger.info(f"Blockchain atualizada: {len(new_chain)} blocos")
             
             case MessageType.PING:
+                # Registra o peer que enviou o ping
+                if message.sender and message.sender != self.address:
+                    self.peers.add(message.sender)
+                    self.logger.info(f"Peer registrado via PING: {message.sender}")
                 return Protocol.pong()
             
             case MessageType.DISCOVER_PEERS:
@@ -188,6 +192,18 @@ class Node:
                 if length_data:
                     self.peers.add(peer_address)
                     self.logger.info(f"Conectado ao peer: {peer_address}")
+                    
+                    # Solicita lista de peers conhecidos por ele
+                    try:
+                        peers_msg = Protocol.discover_peers()
+                        response = self._send_message(peer_address, peers_msg)
+                        if response and response.type == MessageType.PEERS_LIST:
+                            new_peers = set(response.payload["peers"])
+                            self.peers.update(new_peers - {self.address})
+                            self.logger.info(f"Peers descobertos: {len(new_peers)}")
+                    except Exception as e:
+                        self.logger.warning(f"Falha ao descobrir peers de {peer_address}: {e}")
+                        
                     return True
         
         except Exception as e:
