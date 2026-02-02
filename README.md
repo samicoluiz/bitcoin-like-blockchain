@@ -1,6 +1,6 @@
-# Blockchain LSD - Criptomoeda Distribuída Simplificada
+# Bitcoin Blockchain - Criptomoeda Distribuída Simplificada
 
-Implementação de um sistema distribuído de criptomoeda inspirado no Bitcoin para a disciplina de Laboratório de Sistemas Distribuídos (UFPA).
+Implementação de um sistema distribuído de criptomoeda inspirado no Bitcoin.
 
 ## 👥 Equipe
 
@@ -14,9 +14,9 @@ Sistema distribuído onde cada nó mantém uma cópia local da blockchain, comun
 ## 🏗️ Estrutura do Projeto
 
 ```
-blockchain-lsd/
+bitcoin-like-blockchain/
 ├── src/
-│   └── blockchain_lsd/
+│   └── blockchain/
 │       ├── __init__.py
 │       ├── block.py         # Estrutura do bloco
 │       ├── blockchain.py    # Gerenciamento da cadeia

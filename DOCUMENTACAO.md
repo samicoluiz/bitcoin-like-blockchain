@@ -1,8 +1,8 @@
-# Documentação Técnica - Blockchain LSD
+# Documentação Técnica - Bitcoin Blockchain
 
 ## Visão Geral
 
-Sistema distribuído de criptomoeda simplificado (Bitcoin-like) implementado em Python para a disciplina de Laboratório de Sistemas Distribuídos - UFPA.
+Sistema distribuído de criptomoeda simplificado (Bitcoin-like) implementado em Python.
 
 **Equipe:** Luiz Antonio, Max
 

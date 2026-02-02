@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Blockchain LSD - Ponto de entrada principal
+Bitcoin Blockchain - Ponto de entrada principal
 
 Uso:
     uv run python main.py --port 5000 --bootstrap localhost:5001
@@ -10,7 +10,7 @@ import argparse
 import threading
 import time
 
-from src.blockchain_lsd import Node, Transaction
+from src.blockchain import Node, Transaction
 
 
 def parse_args():
@@ -39,7 +39,7 @@ def parse_args():
 
 def print_menu():
     print("\n" + "=" * 50)
-    print("BLOCKCHAIN LSD - Menu de Comandos")
+    print("BITCOIN BLOCKCHAIN - Menu de Comandos")
     print("=" * 50)
     print("1. Criar transação")
     print("2. Ver transações pendentes")
