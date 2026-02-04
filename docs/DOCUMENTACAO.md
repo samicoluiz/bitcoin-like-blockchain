@@ -273,7 +273,7 @@ Nó A                          Nó B
 ### Teste Unitário Rápido
 ```bash
 uv run python -c "
-from src.blockchain_lsd import Block, Blockchain, Transaction, Miner
+from src.blockchain import Block, Blockchain, Transaction, Miner
 
 bc = Blockchain()
 tx = Transaction(origem='genesis', destino='luiz', valor=50)

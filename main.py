@@ -60,6 +60,13 @@ def create_transaction(node: Node):
     try:
         valor = float(input("Valor: ").strip())
         tx = Transaction(origem=origem, destino=destino, valor=valor)
+        
+        # Verifica saldo antes de adicionar
+        saldo = node.blockchain.get_balance(origem)
+        if origem not in ("genesis", "coinbase") and saldo < valor:
+            print(f"✗ Saldo insuficiente! {origem} tem {saldo}, precisa de {valor}")
+            return
+        
         node.broadcast_transaction(tx)
         print(f"✓ Transação criada: {tx.id[:8]}...")
     except ValueError as e:
@@ -77,11 +84,8 @@ def show_pending(node: Node):
 
 
 def mine_block(node: Node):
-    if not node.blockchain.pending_transactions:
-        print("Nenhuma transação pendente para minerar.")
-        return
-    
-    print("\n⛏️  Minerando...")
+    num_txs = len(node.blockchain.pending_transactions)
+    print(f"\n⛏️  Minerando bloco com {num_txs} transação(ões)...")
     start = time.time()
     block = node.mine()
     elapsed = time.time() - start
