@@ -20,16 +20,39 @@ class Blockchain:
     - Calcular saldos
     """
     
-    DIFFICULTY = "000"  # Hash deve começar com 000
+    INITIAL_DIFFICULTY = "000"  # Dificuldade inicial
+    ADJUSTMENT_INTERVAL = 10     # Segundos para considerar ajuste
+    COINBASE_REWARD = 50.0      # Recompensa por bloco minerado
     
     def __init__(self):
         self.chain: list[Block] = [Block.create_genesis()]
         self.pending_transactions: list[Transaction] = []
+        self.difficulty = self.INITIAL_DIFFICULTY
     
     @property
     def last_block(self) -> Block:
         """Retorna o último bloco da cadeia."""
         return self.chain[-1]
+
+    def get_current_difficulty(self) -> str:
+        """
+        Calcula a dificuldade dinâmica.
+        
+        V2.0: Se o tempo entre os últimos 2 blocos for < 10 segundos, aumenta a dificuldade.
+        """
+        if len(self.chain) < 2:
+            return self.INITIAL_DIFFICULTY
+        
+        last_block = self.chain[-1]
+        prev_block = self.chain[-2]
+        
+        time_diff = last_block.timestamp - prev_block.timestamp
+        
+        # Lógica de ajuste: se minerado rápido demais, aumenta dificuldade
+        if time_diff < self.ADJUSTMENT_INTERVAL:
+            return "0000" # Dificuldade aumentada
+        
+        return self.INITIAL_DIFFICULTY
     
     def get_balance(self, address: str) -> float:
         """
@@ -62,6 +85,7 @@ class Blockchain:
         Valida:
         - Valor positivo
         - Saldo suficiente na origem
+        - Assinatura digital válida (V2.0)
         - Transação não duplicada
         """
         # Verifica duplicata
@@ -72,12 +96,20 @@ class Blockchain:
             if transaction in block.transactions:
                 return False
         
+        # V2.0: Verifica Assinatura Digital
+        if not transaction.verify_signature():
+            return False
+            
         # Verifica saldo (exceto para origem "genesis" ou "coinbase")
         if transaction.origem not in ("genesis", "coinbase"):
             balance = self.get_balance(transaction.origem)
             if balance < transaction.valor:
                 return False
         
+        # V2.0: Bloqueia transações coinbase avulsas (apenas via mineração)
+        if transaction.origem == "coinbase":
+            return False
+            
         self.pending_transactions.append(transaction)
         return True
     
@@ -88,7 +120,8 @@ class Blockchain:
         Valida:
         - Índice correto
         - Hash do bloco anterior
-        - Proof of Work válido
+        - Proof of Work válido com dificuldade dinâmica
+        - Transação coinbase válida
         - Hash calculado corretamente
         """
         if not self.is_valid_block(block):
@@ -112,10 +145,25 @@ class Blockchain:
         if block.previous_hash != self.last_block.hash:
             return False
         
-        # Verifica Proof of Work
-        if not block.hash.startswith(self.DIFFICULTY):
+        # V2.0 Interoperabilidade: Verifica Proof of Work
+        # Se minerarmos, tentamos 0000, mas aceitamos 000 de outros nós 
+        # para manter a compatibilidade e evitar forks.
+        if not block.hash.startswith(self.INITIAL_DIFFICULTY):
             return False
         
+        # V2.0: Verifica Transações no bloco (Assinaturas se presentes e Coinbase)
+        coinbase_count = 0
+        for tx in block.transactions:
+            if not tx.verify_signature():
+                return False
+            if tx.origem == "coinbase":
+                coinbase_count += 1
+                if tx.valor != self.COINBASE_REWARD:
+                    return False
+        
+        if coinbase_count != 1: # Deve haver exatamente 1 recompensa por bloco
+            return False
+
         # Verifica se hash está correto
         if block.hash != block.calculate_hash():
             return False
@@ -129,7 +177,7 @@ class Blockchain:
         Verifica:
         - Bloco gênesis correto
         - Encadeamento de hashes
-        - Proof of Work de cada bloco
+        - Proof of Work de cada bloco com ajuste de dificuldade
         """
         if chain is None:
             chain = self.chain
@@ -155,8 +203,25 @@ class Blockchain:
             if current.hash != current.calculate_hash():
                 return False
             
-            # Verifica Proof of Work
-            if not current.hash.startswith(self.DIFFICULTY):
+            # Verifica Proof of Work (Usando a dificuldade da época do bloco)
+            time_diff = current.timestamp - previous.timestamp
+            expected_difficulty = "0000" if (i > 1 and (previous.timestamp - chain[i-2].timestamp) < self.ADJUSTMENT_INTERVAL) else "000"
+            
+            if not current.hash.startswith(expected_difficulty):
+                if not current.hash.startswith(self.INITIAL_DIFFICULTY):
+                    return False
+            
+            # V2.0: Verifica assinaturas e coinbase em cada bloco da cadeia
+            coinbase_count = 0
+            for tx in current.transactions:
+                if not tx.verify_signature():
+                    return False
+                if tx.origem == "coinbase":
+                    coinbase_count += 1
+                    if tx.valor != self.COINBASE_REWARD:
+                        return False
+            
+            if coinbase_count != 1:
                 return False
         
         return True

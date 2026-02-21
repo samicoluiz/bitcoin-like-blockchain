@@ -45,7 +45,7 @@ class Miner:
         reward_tx = Transaction(
             origem="coinbase",
             destino=self.miner_address,
-            valor=50.0  # Recompensa fixa
+            valor=self.blockchain.COINBASE_REWARD # V2.0: Usa valor definido na blockchain
         )
         transactions.insert(0, reward_tx)
         
@@ -60,11 +60,14 @@ class Miner:
             timestamp=time.time(),
         )
         
+        # V2.0: Obtém a dificuldade atual calculada dinamicamente
+        current_difficulty = self.blockchain.get_current_difficulty()
+        
         # Proof of Work: encontra nonce válido
         while self.mining:
             block.hash = block.calculate_hash()
             
-            if block.is_valid_hash(Blockchain.DIFFICULTY):
+            if block.is_valid_hash(current_difficulty):
                 self.mining = False
                 return block
             

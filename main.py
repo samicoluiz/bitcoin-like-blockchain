@@ -9,8 +9,27 @@ Uso:
 import argparse
 import threading
 import time
+from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from src.blockchain import Node, Transaction
+from src.blockchain import Node, Transaction, Protocol, MessageType
+
+
+# V2.0: Armazenamento simples de chaves em memória para a sessão
+current_keys: dict[str, ed25519.Ed25519PrivateKey] = {}
+
+
+def generate_keys():
+    """Gera um novo par de chaves Ed25519 (V2.0)."""
+    private_key = ed25519.Ed25519PrivateKey.generate()
+    public_key = private_key.public_key()
+    
+    pub_hex = public_key.public_bytes_raw().hex()
+    current_keys[pub_hex] = private_key
+    
+    print("\n--- Novo Par de Chaves Gerado ---")
+    print(f"Pública (Endereço): {pub_hex}")
+    print(f"Privada: (Armazenada em memória para esta sessão)")
+    return pub_hex
 
 
 def parse_args():
@@ -39,9 +58,9 @@ def parse_args():
 
 def print_menu():
     print("\n" + "=" * 50)
-    print("BITCOIN BLOCKCHAIN - Menu de Comandos")
+    print("BITCOIN BLOCKCHAIN V2.0 - Menu de Comandos")
     print("=" * 50)
-    print("1. Criar transação")
+    print("1. Criar transação (Necessita Chave)")
     print("2. Ver transações pendentes")
     print("3. Minerar bloco")
     print("4. Ver blockchain")
@@ -49,17 +68,38 @@ def print_menu():
     print("6. Ver peers conectados")
     print("7. Conectar a peer")
     print("8. Sincronizar blockchain")
+    print("9. Gerar novo par de chaves (V2.0)")
+    print("s. Check Status dos Peers (V2.0)")
     print("0. Sair")
     print("=" * 50)
 
 
 def create_transaction(node: Node):
     print("\n--- Nova Transação ---")
-    origem = input("Origem: ").strip()
-    destino = input("Destino: ").strip()
+    if not current_keys:
+        print("✗ Nenhuma chave disponível. Gere uma com a opção 9!")
+        return
+        
+    print("Escolha sua chave (Endereço):")
+    for i, key in enumerate(current_keys.keys()):
+        print(f"  {i}. {key}")
+        
+    try:
+        idx = int(input("Índice: ").strip())
+        origem = list(current_keys.keys())[idx]
+        private_key = current_keys[origem]
+    except (ValueError, IndexError):
+        print("✗ Índice inválido!")
+        return
+
+    destino = input("Destino (Endereço Hex): ").strip()
     try:
         valor = float(input("Valor: ").strip())
         tx = Transaction(origem=origem, destino=destino, valor=valor)
+        
+        # V2.0: Assina a transação
+        signature = private_key.sign(tx.calculate_raw_data())
+        tx.assinatura = signature.hex()
         
         # Verifica saldo antes de adicionar
         saldo = node.blockchain.get_balance(origem)
@@ -68,9 +108,22 @@ def create_transaction(node: Node):
             return
         
         node.broadcast_transaction(tx)
-        print(f"✓ Transação criada: {tx.id[:8]}...")
+        print(f"✓ Transação assinada e enviada: {tx.id[:8]}...")
     except ValueError as e:
         print(f"✗ Erro: {e}")
+
+
+def check_peers_status(node: Node):
+    """Envia pedido de STATUS_CHECK para todos os peers (V2.0)."""
+    print("\n--- Verificando Status dos Peers ---")
+    if not node.peers:
+        print("Nenhum peer conectado.")
+        return
+        
+    for peer in node.peers:
+        msg = Protocol.status_check()
+        threading.Thread(target=node._send_message, args=(peer, msg)).start()
+    print("Pedidos de status enviados!")
 
 
 def show_pending(node: Node):
@@ -179,6 +232,10 @@ def main():
                     connect_peer(node)
                 case "8":
                     sync_chain(node)
+                case "9":
+                    generate_keys()
+                case "s":
+                    check_peers_status(node)
                 case "0":
                     print("Encerrando...")
                     break

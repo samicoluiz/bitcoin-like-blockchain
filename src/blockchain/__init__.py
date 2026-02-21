@@ -10,7 +10,7 @@ from .node import Node
 from .miner import Miner
 from .protocol import Protocol, MessageType
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
 __all__ = [
     "Block",
     "Blockchain",

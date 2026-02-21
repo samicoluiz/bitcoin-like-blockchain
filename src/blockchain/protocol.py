@@ -29,6 +29,7 @@ class MessageType(Enum):
     PONG = "PONG"
     DISCOVER_PEERS = "DISCOVER_PEERS"
     PEERS_LIST = "PEERS_LIST"
+    # STATUS_CHECK removido do Enum para compatibilidade com V1.0
 
 
 @dataclass
@@ -137,4 +138,24 @@ class Protocol:
         return Message(
             type=MessageType.PEERS_LIST,
             payload={"peers": peers},
+        )
+    
+    @staticmethod
+    def status_check() -> Message:
+        """Cria mensagem de verificação de status (Camuflada em PING) (V2.0)."""
+        return Message(
+            type=MessageType.PING,
+            payload={"action": "status_request"},
+        )
+    
+    @staticmethod
+    def status_response(block_count: int, pending_tx_count: int) -> Message:
+        """Cria resposta de status (Camuflada em PONG) (V2.0)."""
+        return Message(
+            type=MessageType.PONG,
+            payload={
+                "action": "status_response",
+                "block_count": block_count,
+                "pending_tx_count": pending_tx_count,
+            },
         )

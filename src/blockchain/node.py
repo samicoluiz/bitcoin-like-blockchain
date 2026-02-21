@@ -161,8 +161,24 @@ class Node:
                 if message.sender and message.sender != self.address:
                     self.peers.add(message.sender)
                     self.logger.info(f"Peer registrado via PING: {message.sender}")
+                
+                # V2.0: Se for um status check, retorna status no PONG
+                if message.payload.get("action") == "status_request":
+                    return Protocol.status_response(
+                        block_count=len(self.blockchain.chain),
+                        pending_tx_count=len(self.blockchain.pending_transactions)
+                    )
                 return Protocol.pong()
             
+            case MessageType.PONG:
+                # V2.0: Processa monitoramento de status se presente
+                if message.payload.get("action") == "status_response":
+                    self.logger.info(
+                        f"Status do Peer {message.sender}: "
+                        f"{message.payload['block_count']} blocos, "
+                        f"{message.payload['pending_tx_count']} txs pendentes"
+                    )
+
             case MessageType.DISCOVER_PEERS:
                 return Protocol.peers_list(list(self.peers))
             
