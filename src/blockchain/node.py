@@ -1,309 +1,171 @@
-"""
-Módulo do Nó da Rede P2P
-"""
-
 import socket
+import json
 import threading
-import logging
-from typing import Callable
-
+from .block import Bloco
+from .transaction import Transacao
 from .blockchain import Blockchain
-from .block import Block
-from .transaction import Transaction
-from .miner import Miner
-from .protocol import Protocol, Message, MessageType
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-
-class Node:
-    """
-    Representa um nó na rede P2P da blockchain.
-    
-    Responsabilidades:
-    - Executar como processo independente
-    - Comunicar com outros nós via sockets
-    - Manter cópia local da blockchain
-    - Minerar novos blocos
-    - Propagar transações e blocos
-    """
-    
-    BUFFER_SIZE = 65536  # 64KB
-    
-    def __init__(self, host: str = "localhost", port: int = 5000):
+class No:
+    def __init__(self, host, porta):
         self.host = host
-        self.port = port
-        self.address = f"{host}:{port}"
-        
+        self.porta = porta
+        self.endereco = f"{host}:{porta}"
         self.blockchain = Blockchain()
-        self.miner = Miner(self.blockchain, self.address)
-        
-        self.peers: set[str] = set()  # Conjunto de peers conhecidos
-        self.server_socket: socket.socket | None = None
-        self.running = False
-        
-        self.logger = logging.getLogger(f"Node:{port}")
-        
-        # Callbacks para eventos
-        self.on_new_block: Callable[[Block], None] | None = None
-        self.on_new_transaction: Callable[[Transaction], None] | None = None
-    
-    def start(self):
-        """Inicia o servidor do nó."""
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(10)
-        
-        self.running = True
-        self.logger.info(f"Nó iniciado em {self.address}")
-        
-        # Thread para aceitar conexões
-        accept_thread = threading.Thread(target=self._accept_connections)
-        accept_thread.daemon = True
-        accept_thread.start()
-    
-    def stop(self):
-        """Para o servidor do nó."""
-        self.running = False
-        self.miner.stop_mining()
-        if self.server_socket:
-            self.server_socket.close()
-        self.logger.info("Nó encerrado")
-    
-    def _accept_connections(self):
-        """Loop para aceitar novas conexões."""
-        while self.running:
+        self.peers = set()
+        self.rodando = True
+        self.logs = []
+
+    def log(self, msg):
+        self.logs.append(msg)
+        if len(self.logs) > 20: self.logs.pop(0)
+
+    def iniciar(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((self.host, self.porta))
+        s.listen(10)
+        self.socket_servidor = s
+        threading.Thread(target=self._aceitar, name="Server", daemon=True).start()
+
+    def _aceitar(self):
+        while self.rodando:
             try:
-                client_socket, address = self.server_socket.accept()
-                client_thread = threading.Thread(
-                    target=self._handle_client,
-                    args=(client_socket, address)
-                )
-                client_thread.daemon = True
-                client_thread.start()
-            except Exception as e:
-                if self.running:
-                    self.logger.error(f"Erro ao aceitar conexão: {e}")
-    
-    def _handle_client(self, client_socket: socket.socket, address: tuple):
-        """Processa mensagens de um cliente."""
+                conexao, _ = self.socket_servidor.accept()
+                threading.Thread(target=self._lidar, args=(conexao,), daemon=True).start()
+            except: break
+
+    def _lidar(self, conexao):
         try:
-            # Lê tamanho da mensagem (4 bytes)
-            length_data = client_socket.recv(4)
-            if not length_data:
-                return
+            raw_len = conexao.recv(4)
+            if not raw_len: return
+            msg_len = int.from_bytes(raw_len, 'big')
             
-            length = int.from_bytes(length_data, 'big')
-            
-            # Lê mensagem
             data = b""
-            while len(data) < length:
-                chunk = client_socket.recv(min(self.BUFFER_SIZE, length - len(data)))
-                if not chunk:
-                    break
+            while len(data) < msg_len:
+                chunk = conexao.recv(min(msg_len - len(data), 8192))
+                if not chunk: break
                 data += chunk
             
             if data:
-                message = Message.from_bytes(data)
-                response = self._process_message(message)
-                
-                if response:
-                    client_socket.sendall(response.to_bytes())
-        
-        except Exception as e:
-            self.logger.error(f"Erro ao processar cliente {address}: {e}")
-        finally:
-            client_socket.close()
-    
-    def _process_message(self, message: Message) -> Message | None:
-        """Processa uma mensagem recebida e retorna resposta se necessário."""
-        self.logger.info(f"Mensagem recebida: {message.type.value} de {message.sender}")
-        
-        match message.type:
-            case MessageType.NEW_TRANSACTION:
-                tx_data = message.payload["transaction"]
-                transaction = Transaction.from_dict(tx_data)
-                if self.blockchain.add_transaction(transaction):
-                    self.logger.info(f"Nova transação adicionada: {transaction.id[:8]}...")
-                    # Propaga para outros peers
-                    self._broadcast(message, exclude=message.sender)
-                    if self.on_new_transaction:
-                        self.on_new_transaction(transaction)
-            
-            case MessageType.NEW_BLOCK:
-                block_data = message.payload["block"]
-                block = Block.from_dict(block_data)
-                if self.blockchain.add_block(block):
-                    self.logger.info(f"Novo bloco adicionado: #{block.index}")
-                    # Para mineração atual (outro nó encontrou primeiro)
-                    self.miner.stop_mining()
-                    # Propaga para outros peers
-                    self._broadcast(message, exclude=message.sender)
-                    if self.on_new_block:
-                        self.on_new_block(block)
-            
-            case MessageType.REQUEST_CHAIN:
-                return Protocol.response_chain(self.blockchain.to_dict())
-            
-            case MessageType.RESPONSE_CHAIN:
-                chain_data = message.payload["blockchain"]
-                new_chain = [Block.from_dict(b) for b in chain_data["chain"]]
-                if self.blockchain.replace_chain(new_chain):
-                    self.logger.info(f"Blockchain atualizada: {len(new_chain)} blocos")
-            
-            case MessageType.PING:
-                # Registra o peer que enviou o ping
-                if message.sender and message.sender != self.address:
-                    self.peers.add(message.sender)
-                    self.logger.info(f"Peer registrado via PING: {message.sender}")
-                
-                # V2.0: Se for um status check, retorna status no PONG
-                if message.payload.get("action") == "status_request":
-                    return Protocol.status_response(
-                        block_count=len(self.blockchain.chain),
-                        pending_tx_count=len(self.blockchain.pending_transactions)
-                    )
-                return Protocol.pong()
-            
-            case MessageType.PONG:
-                # V2.0: Processa monitoramento de status se presente
-                if message.payload.get("action") == "status_response":
-                    self.logger.info(
-                        f"Status do Peer {message.sender}: "
-                        f"{message.payload['block_count']} blocos, "
-                        f"{message.payload['pending_tx_count']} txs pendentes"
-                    )
+                mensagem = json.loads(data.decode('utf-8'))
+                self._processar(mensagem, conexao)
+        except: pass
+        finally: conexao.close()
 
-            case MessageType.DISCOVER_PEERS:
-                return Protocol.peers_list(list(self.peers))
+    def _processar(self, mensagem, conexao=None):
+        tipo = mensagem.get("type")
+        payload = mensagem.get("payload")
+        remetente = mensagem.get("sender")
+
+        if remetente and remetente != self.endereco:
+            if remetente not in self.peers:
+                self.peers.add(remetente)
+                self.log(f"[REDE] Peer: {remetente}")
+
+        if tipo == "NEW_TRANSACTION":
+            tx = Transacao.de_dict(payload["transaction"])
+            # adicionar_transacao agora retorna False para duplicadas, parando o loop
+            sucesso, msg = self.blockchain.adicionar_transacao(tx)
+            if sucesso:
+                self.log(f"[TX] {tx.id[:8]} recebida")
+                self.transmitir(mensagem, excluir=remetente)
             
-            case MessageType.PEERS_LIST:
-                new_peers = set(message.payload["peers"])
-                self.peers.update(new_peers - {self.address})
-        
-        return None
-    
-    def connect_to_peer(self, peer_address: str) -> bool:
-        """Conecta a um peer e adiciona à lista."""
-        if peer_address == self.address:
-            return False
-        
+        elif tipo == "NEW_BLOCK":
+            bloco = Bloco.de_dict(payload["block"])
+            if self.blockchain.adicionar_bloco(bloco):
+                self.log(f"[BLOCK] #{bloco.index} aceito")
+                self.transmitir(mensagem, excluir=remetente)
+            elif bloco.index > self.blockchain.ultimo_bloco.index:
+                threading.Thread(target=self.sincronizar, args=(remetente,), daemon=True).start()
+            
+        elif tipo == "REQUEST_CHAIN":
+            res = {
+                "type": "RESPONSE_CHAIN", 
+                "payload": {"blockchain": {"chain": [b.para_dict() for b in self.blockchain.cadeia]}}, 
+                "sender": self.endereco
+            }
+            if conexao: self._enviar_direto(conexao, res)
+
+        elif tipo == "RESPONSE_CHAIN":
+            bc_data = payload.get("blockchain", {}).get("chain", [])
+            if not bc_data: bc_data = payload.get("chain", [])
+            nova_cadeia = [Bloco.de_dict(b) for b in bc_data]
+            if len(nova_cadeia) > len(self.blockchain.cadeia):
+                self.blockchain.cadeia = nova_cadeia
+                self.log(f"[SYNC] Sincronizado ({len(nova_cadeia)} blocos)")
+
+        elif tipo == "DISCOVER_PEERS":
+            res = {"type": "PEERS_LIST", "payload": {"peers": list(self.peers)}, "sender": self.endereco}
+            if conexao: self._enviar_direto(conexao, res)
+
+        elif tipo == "PEERS_LIST":
+            for p in payload.get("peers", []):
+                if p != self.endereco and p not in self.peers:
+                    threading.Thread(target=self.conectar_e_apresentar, args=(p,), daemon=True).start()
+
+        elif tipo == "PING":
+            res = {"type": "PONG", "payload": {}, "sender": self.endereco}
+            if conexao: self._enviar_direto(conexao, res)
+
+    def _enviar_direto(self, conexao, mensagem):
         try:
-            host, port = peer_address.split(":")
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.connect((host, int(port)))
-                
-                # Envia ping para verificar conexão
-                message = Protocol.ping()
-                message.sender = self.address
-                sock.sendall(message.to_bytes())
-                
-                # Aguarda pong
-                length_data = sock.recv(4)
-                if length_data:
-                    self.peers.add(peer_address)
-                    self.logger.info(f"Conectado ao peer: {peer_address}")
-                    
-                    # Solicita lista de peers conhecidos por ele
-                    try:
-                        peers_msg = Protocol.discover_peers()
-                        response = self._send_message(peer_address, peers_msg)
-                        if response and response.type == MessageType.PEERS_LIST:
-                            new_peers = set(response.payload["peers"])
-                            self.peers.update(new_peers - {self.address})
-                            self.logger.info(f"Peers descobertos: {len(new_peers)}")
-                    except Exception as e:
-                        self.logger.warning(f"Falha ao descobrir peers de {peer_address}: {e}")
-                        
-                    return True
-        
-        except Exception as e:
-            self.logger.error(f"Erro ao conectar ao peer {peer_address}: {e}")
-        
-        return False
-    
-    def sync_blockchain(self):
-        """Sincroniza blockchain com os peers (baixa a cadeia mais longa)."""
-        for peer in list(self.peers):
-            try:
-                response = self._send_message(peer, Protocol.request_chain())
-                if response and response.type == MessageType.RESPONSE_CHAIN:
-                    chain_data = response.payload["blockchain"]
-                    new_chain = [Block.from_dict(b) for b in chain_data["chain"]]
-                    if self.blockchain.replace_chain(new_chain):
-                        self.logger.info(f"Blockchain sincronizada de {peer}")
-                        break
-            except Exception as e:
-                self.logger.error(f"Erro ao sincronizar com {peer}: {e}")
-    
-    def broadcast_transaction(self, transaction: Transaction):
-        """Propaga uma transação para todos os peers."""
-        if self.blockchain.add_transaction(transaction):
-            message = Protocol.new_transaction(transaction.to_dict())
-            self._broadcast(message)
-    
-    def broadcast_block(self, block: Block):
-        """Propaga um bloco minerado para todos os peers."""
-        if self.blockchain.add_block(block):
-            message = Protocol.new_block(block.to_dict())
-            self._broadcast(message)
-            self.logger.info(f"Bloco #{block.index} propagado para {len(self.peers)} peers")
-    
-    def mine(self) -> Block | None:
-        """Inicia mineração de um novo bloco."""
-        self.logger.info("Iniciando mineração...")
-        
-        def on_progress(nonce: int):
-            self.logger.debug(f"Mineração em progresso... nonce={nonce}")
-        
-        block = self.miner.mine_block(on_progress=on_progress)
-        
-        if block:
-            self.logger.info(f"Bloco minerado! #{block.index} hash={block.hash[:16]}...")
-            self.broadcast_block(block)
-        
-        return block
-    
-    def _send_message(self, peer_address: str, message: Message) -> Message | None:
-        """Envia mensagem para um peer e retorna resposta."""
+            dados = json.dumps(mensagem).encode('utf-8')
+            conexao.sendall(len(dados).to_bytes(4, 'big') + dados)
+        except: pass
+
+    def conectar_e_apresentar(self, peer_addr):
+        if not peer_addr or peer_addr == self.endereco: return
         try:
-            host, port = peer_address.split(":")
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-                sock.settimeout(10)
-                sock.connect((host, int(port)))
+            h, p = peer_addr.split(":")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(3)
+                s.connect((h, int(p)))
+                msg = {"type": "DISCOVER_PEERS", "payload": {}, "sender": self.endereco}
+                self._enviar_direto(s, msg)
                 
-                message.sender = self.address
-                sock.sendall(message.to_bytes())
-                
-                # Aguarda resposta
-                length_data = sock.recv(4)
-                if length_data:
-                    length = int.from_bytes(length_data, 'big')
+                raw_len = s.recv(4)
+                if raw_len:
+                    msg_len = int.from_bytes(raw_len, 'big')
                     data = b""
-                    while len(data) < length:
-                        chunk = sock.recv(min(self.BUFFER_SIZE, length - len(data)))
-                        if not chunk:
-                            break
-                        data += chunk
-                    if data:
-                        return Message.from_bytes(data)
-        
-        except Exception as e:
-            self.logger.error(f"Erro ao enviar para {peer_address}: {e}")
-        
-        return None
-    
-    def _broadcast(self, message: Message, exclude: str = ""):
-        """Envia mensagem para todos os peers."""
-        message.sender = self.address
+                    while len(data) < msg_len:
+                        data += s.recv(msg_len - len(data))
+                    self._processar(json.loads(data.decode('utf-8')))
+        except: pass
+
+    def sincronizar(self, bootstrap):
+        if not bootstrap or bootstrap == self.endereco: return
+        self.log(f"[*] Sincronizando com {bootstrap}...")
+        self.conectar_e_apresentar(bootstrap)
+        try:
+            h, p = bootstrap.split(":")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(5)
+                s.connect((h, int(p)))
+                req = {"type": "REQUEST_CHAIN", "payload": {}, "sender": self.endereco}
+                self._enviar_direto(s, req)
+                
+                raw_len = s.recv(4)
+                if raw_len:
+                    msg_len = int.from_bytes(raw_len, 'big')
+                    data = b""
+                    while len(data) < msg_len:
+                        data += s.recv(msg_len - len(data))
+                    self._processar(json.loads(data.decode('utf-8')))
+        except: pass
+
+    def transmitir(self, mensagem, excluir=None):
+        # Cria uma cópia da mensagem para não alterar o 'sender' original para os outros
+        msg_copy = mensagem.copy()
+        msg_copy["sender"] = self.endereco
         for peer in list(self.peers):
-            if peer != exclude:
-                threading.Thread(
-                    target=self._send_message,
-                    args=(peer, message)
-                ).start()
+            if peer != excluir:
+                threading.Thread(target=self._enviar_para_peer, args=(peer, msg_copy), daemon=True).start()
+
+    def _enviar_para_peer(self, peer_addr, msg):
+        try:
+            h, p = peer_addr.split(":")
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(2)
+                s.connect((h, int(p)))
+                self._enviar_direto(s, msg)
+        except: pass

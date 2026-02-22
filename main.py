@@ -1,253 +1,181 @@
-#!/usr/bin/env python3
-"""
-Bitcoin Blockchain - Ponto de entrada principal
-
-Uso:
-    uv run python main.py --port 5000 --bootstrap localhost:5001
-"""
-
+import curses
 import argparse
+import sys
 import threading
 import time
-from cryptography.hazmat.primitives.asymmetric import ed25519
+import os
 
-from src.blockchain import Node, Transaction, Protocol, MessageType
+# Adiciona src ao path
+sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
+from blockchain.node import No
+from blockchain.transaction import Transacao
+from blockchain.block import Bloco
 
-# V2.0: Armazenamento simples de chaves em memória para a sessão
-current_keys: dict[str, ed25519.Ed25519PrivateKey] = {}
-
-
-def generate_keys():
-    """Gera um novo par de chaves Ed25519 (V2.0)."""
-    private_key = ed25519.Ed25519PrivateKey.generate()
-    public_key = private_key.public_key()
+def iniciar_tui(stdscr, no):
+    # Configurações de exibição
+    curses.curs_set(0)
+    stdscr.nodelay(1)
     
-    pub_hex = public_key.public_bytes_raw().hex()
-    current_keys[pub_hex] = private_key
-    
-    print("\n--- Novo Par de Chaves Gerado ---")
-    print(f"Pública (Endereço): {pub_hex}")
-    print(f"Privada: (Armazenada em memória para esta sessão)")
-    return pub_hex
+    if curses.has_colors():
+        curses.start_color()
+        curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK) # Sucesso
+        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)  # Header
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)# Alerta
+        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_BLACK)   # Erro
 
+    while True:
+        stdscr.erase()
+        altura, largura = stdscr.getmaxyx()
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Nó da rede blockchain distribuída"
-    )
-    parser.add_argument(
-        "--host",
-        default="localhost",
-        help="Host do nó (default: localhost)"
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=5000,
-        help="Porta do nó (default: 5000)"
-    )
-    parser.add_argument(
-        "--bootstrap",
-        nargs="*",
-        default=[],
-        help="Endereços de nós bootstrap (ex: localhost:5001)"
-    )
-    return parser.parse_args()
+        # Proteção contra telas muito pequenas
+        if altura < 16 or largura < 60:
+            try:
+                stdscr.addstr(0, 0, "Aumente o tamanho da janela!", curses.color_pair(4) | curses.A_BOLD)
+                stdscr.addstr(1, 0, f"Atual: {largura}x{altura} | Requerido: 60x16")
+            except: pass
+            stdscr.refresh()
+            time.sleep(0.5)
+            continue
 
+        try:
+            # Cabeçalho Principal (Usando largura-1 para evitar erro de borda do curses)
+            status_line = f" ₿ BITCOIN LAB-DIST | NÓ: {no.endereco} | BLOCOS: {len(no.blockchain.cadeia)} | PEERS: {len(no.peers)} "
+            stdscr.attron(curses.A_BOLD | curses.color_pair(2))
+            stdscr.addstr(0, 0, status_line[:largura-1].ljust(largura-1), curses.A_REVERSE)
+            stdscr.attroff(curses.A_BOLD | curses.color_pair(2))
 
-def print_menu():
-    print("\n" + "=" * 50)
-    print("BITCOIN BLOCKCHAIN V2.0 - Menu de Comandos")
-    print("=" * 50)
-    print("1. Criar transação (Necessita Chave)")
-    print("2. Ver transações pendentes")
-    print("3. Minerar bloco")
-    print("4. Ver blockchain")
-    print("5. Ver saldo")
-    print("6. Ver peers conectados")
-    print("7. Conectar a peer")
-    print("8. Sincronizar blockchain")
-    print("9. Gerar novo par de chaves (V2.0)")
-    print("s. Check Status dos Peers (V2.0)")
-    print("0. Sair")
-    print("=" * 50)
+            # Menu Dividido
+            stdscr.addstr(2, 2, "--- OPERAÇÕES ---", curses.color_pair(1))
+            stdscr.addstr(3, 2, " [T] Transferir Moedas")
+            stdscr.addstr(4, 2, " [M] Minerar Novo Bloco")
+            stdscr.addstr(5, 2, " [P] Ver Pool de Transações")
+            stdscr.addstr(6, 2, " [S] Consultar Saldo")
 
+            stdscr.addstr(8, 2, "--- REDE E P2P ---", curses.color_pair(1))
+            stdscr.addstr(9, 2, " [B] Ver Blockchain")
+            stdscr.addstr(10, 2, " [L] Lista de Peers")
+            stdscr.addstr(11, 2, " [C] Conectar a Peer")
+            stdscr.addstr(13, 2, " [Q] Sair do Sistema")
 
-def create_transaction(node: Node):
-    print("\n--- Nova Transação ---")
-    if not current_keys:
-        print("✗ Nenhuma chave disponível. Gere uma com a opção 9!")
-        return
-        
-    print("Escolha sua chave (Endereço):")
-    for i, key in enumerate(current_keys.keys()):
-        print(f"  {i}. {key}")
-        
-    try:
-        idx = int(input("Índice: ").strip())
-        origem = list(current_keys.keys())[idx]
-        private_key = current_keys[origem]
-    except (ValueError, IndexError):
-        print("✗ Índice inválido!")
-        return
+            # Janela de Atividade (Logs)
+            log_start_x = largura // 2
+            stdscr.addstr(2, log_start_x, "--- ATIVIDADE DA REDE ---", curses.color_pair(3))
+            for i, log in enumerate(no.logs[-12:]):
+                texto_log = f" {log}"[:largura - log_start_x - 1]
+                stdscr.addstr(3 + i, log_start_x, texto_log)
 
-    destino = input("Destino (Endereço Hex): ").strip()
-    try:
-        valor = float(input("Valor: ").strip())
-        tx = Transaction(origem=origem, destino=destino, valor=valor)
-        
-        # V2.0: Assina a transação
-        signature = private_key.sign(tx.calculate_raw_data())
-        tx.assinatura = signature.hex()
-        
-        # Verifica saldo antes de adicionar
-        saldo = node.blockchain.get_balance(origem)
-        if origem not in ("genesis", "coinbase") and saldo < valor:
-            print(f"✗ Saldo insuficiente! {origem} tem {saldo}, precisa de {valor}")
-            return
-        
-        node.broadcast_transaction(tx)
-        print(f"✓ Transação assinada e enviada: {tx.id[:8]}...")
-    except ValueError as e:
-        print(f"✗ Erro: {e}")
+            # Rodapé
+            stdscr.addstr(altura-1, 0, " Pressione a tecla correspondente para agir. ".ljust(largura-1), curses.A_REVERSE)
+        except curses.error:
+            pass
 
+        # Processar Entrada
+        c = stdscr.getch()
+        if c != -1:
+            try:
+                key = chr(c).lower()
+                if key == 'q': break
+                
+                elif key in ['t', 's', 'c']:
+                    # MODO DE ENTRADA BLOQUEANTE (Para evitar pular campos)
+                    stdscr.nodelay(0)
+                    curses.echo()
+                    curses.curs_set(1)
+                    
+                    if key == 't':
+                        stdscr.addstr(altura-3, 2, "Origem:  ".ljust(largura-5))
+                        stdscr.move(altura-3, 11)
+                        orig = stdscr.getstr().decode('utf-8').strip()
+                        
+                        stdscr.addstr(altura-2, 2, "Destino: ".ljust(largura-5))
+                        stdscr.move(altura-2, 11)
+                        dest = stdscr.getstr().decode('utf-8').strip()
+                        
+                        stdscr.addstr(altura-1, 2, "Valor:   ".ljust(largura-5))
+                        stdscr.move(altura-1, 11)
+                        val_str = stdscr.getstr().decode('utf-8').strip()
+                        
+                        try:
+                            val = float(val_str)
+                            tx = Transacao(orig, dest, val)
+                            res, msg = no.blockchain.adicionar_transacao(tx)
+                            if res:
+                                no.transmitir({"type": "NEW_TRANSACTION", "payload": {"transaction": tx.para_dict()}})
+                                no.log(f"[TX] {val} de {orig} para {dest}")
+                            else: no.log(f"[!] Erro: {msg}")
+                        except: no.log("[!] Valor inválido")
 
-def check_peers_status(node: Node):
-    """Envia pedido de STATUS_CHECK para todos os peers (V2.0)."""
-    print("\n--- Verificando Status dos Peers ---")
-    if not node.peers:
-        print("Nenhum peer conectado.")
-        return
-        
-    for peer in node.peers:
-        msg = Protocol.status_check()
-        threading.Thread(target=node._send_message, args=(peer, msg)).start()
-    print("Pedidos de status enviados!")
+                    elif key == 's':
+                        stdscr.addstr(altura-2, 2, "Endereço: ".ljust(largura-5))
+                        stdscr.move(altura-2, 12)
+                        end = stdscr.getstr().decode('utf-8').strip()
+                        if end:
+                            saldo = no.blockchain.obter_saldo(end)
+                            no.log(f"[SALDO] {end}: {saldo}")
+                        else: no.log("[!] Endereço vazio")
 
+                    elif key == 'c':
+                        stdscr.addstr(altura-2, 2, "IP:Porta: ".ljust(largura-5))
+                        stdscr.move(altura-2, 12)
+                        peer_addr = stdscr.getstr().decode('utf-8').strip()
+                        if peer_addr: no.sincronizar(peer_addr)
 
-def show_pending(node: Node):
-    print("\n--- Transações Pendentes ---")
-    if not node.blockchain.pending_transactions:
-        print("Nenhuma transação pendente.")
-        return
-    
-    for tx in node.blockchain.pending_transactions:
-        print(f"  [{tx.id[:8]}...] {tx.origem} -> {tx.destino}: {tx.valor}")
+                    # VOLTA PARA O MODO NORMAL
+                    curses.noecho()
+                    curses.curs_set(0)
+                    stdscr.nodelay(1)
 
+                elif key == 'm': # Mineração COM RECOMPENSA
+                    def minerar_task():
+                        no.log("[*] Minerando...")
+                        ant = no.blockchain.ultimo_bloco
+                        
+                        # RECOMPENSA COINBASE
+                        recompensa = Transacao("coinbase", no.endereco, 50.0)
+                        txs = [recompensa] + no.blockchain.transacoes_pendentes.copy()
+                        
+                        bloco = Bloco(ant.index + 1, ant.hash, txs, 0)
+                        while not bloco.hash.startswith(no.blockchain.dificuldade) and no.rodando:
+                            bloco.nonce += 1
+                            bloco.hash = bloco.calcular_hash()
+                        
+                        if no.blockchain.adicionar_bloco(bloco):
+                            no.transmitir({"type": "NEW_BLOCK", "payload": {"block": bloco.para_dict()}})
+                            no.log(f"[MINER] Bloco #{bloco.index} OK (+50 moedas)")
+                        else: no.log("[!] Bloco rejeitado")
+                    threading.Thread(target=minerar_task, daemon=True).start()
 
-def mine_block(node: Node):
-    num_txs = len(node.blockchain.pending_transactions)
-    print(f"\n⛏️  Minerando bloco com {num_txs} transação(ões)...")
-    start = time.time()
-    block = node.mine()
-    elapsed = time.time() - start
-    
-    if block:
-        print(f"✓ Bloco #{block.index} minerado em {elapsed:.2f}s")
-        print(f"  Hash: {block.hash}")
-        print(f"  Nonce: {block.nonce}")
-    else:
-        print("✗ Mineração interrompida")
+                elif key == 'p': # Pool
+                    no.log(f"[POOL] {len(no.blockchain.transacoes_pendentes)} transações")
+                    for tx in no.blockchain.transacoes_pendentes[:3]:
+                        no.log(f" - {tx.origem[:5]}->{tx.destino[:5]}: {tx.valor}")
 
+                elif key == 's' and False: # (Não entra aqui, já tratado acima)
+                    pass
 
-def show_blockchain(node: Node):
-    print("\n--- Blockchain ---")
-    for block in node.blockchain.chain:
-        print(f"\n[Bloco #{block.index}]")
-        print(f"  Hash: {block.hash[:32]}...")
-        print(f"  Previous: {block.previous_hash[:32]}...")
-        print(f"  Nonce: {block.nonce}")
-        print(f"  Transações: {len(block.transactions)}")
-        for tx in block.transactions:
-            print(f"    - {tx.origem} -> {tx.destino}: {tx.valor}")
+                elif key == 'b': # Blockchain
+                    for b in no.blockchain.cadeia[-3:]:
+                        no.log(f"[BLOCK] #{b.index} | Hash: {b.hash[:16]}...")
 
+                elif key == 'l': # Lista de Peers
+                    no.log(f"[REDE] Peers: {list(no.peers)}")
 
-def show_balance(node: Node):
-    address = input("\nEndereço: ").strip()
-    balance = node.blockchain.get_balance(address)
-    print(f"Saldo de {address}: {balance}")
+            except: pass
 
-
-def show_peers(node: Node):
-    print("\n--- Peers Conectados ---")
-    if not node.peers:
-        print("Nenhum peer conectado.")
-        return
-    
-    for peer in node.peers:
-        print(f"  - {peer}")
-
-
-def connect_peer(node: Node):
-    peer = input("\nEndereço do peer (host:port): ").strip()
-    if node.connect_to_peer(peer):
-        print(f"✓ Conectado a {peer}")
-    else:
-        print(f"✗ Falha ao conectar a {peer}")
-
-
-def sync_chain(node: Node):
-    print("\n🔄 Sincronizando blockchain...")
-    node.sync_blockchain()
-    print(f"✓ Blockchain com {len(node.blockchain.chain)} blocos")
-
-
-def main():
-    args = parse_args()
-    
-    # Cria e inicia o nó
-    node = Node(host=args.host, port=args.port)
-    node.start()
-    
-    # Conecta aos nós bootstrap
-    for bootstrap in args.bootstrap:
-        if node.connect_to_peer(bootstrap):
-            print(f"Conectado ao bootstrap: {bootstrap}")
-    
-    # Sincroniza blockchain se tiver peers
-    if node.peers:
-        node.sync_blockchain()
-    
-    # Loop principal
-    try:
-        while True:
-            print_menu()
-            choice = input("Escolha: ").strip()
-            
-            match choice:
-                case "1":
-                    create_transaction(node)
-                case "2":
-                    show_pending(node)
-                case "3":
-                    mine_block(node)
-                case "4":
-                    show_blockchain(node)
-                case "5":
-                    show_balance(node)
-                case "6":
-                    show_peers(node)
-                case "7":
-                    connect_peer(node)
-                case "8":
-                    sync_chain(node)
-                case "9":
-                    generate_keys()
-                case "s":
-                    check_peers_status(node)
-                case "0":
-                    print("Encerrando...")
-                    break
-                case _:
-                    print("Opção inválida!")
-    
-    except KeyboardInterrupt:
-        print("\nInterrompido pelo usuário")
-    
-    finally:
-        node.stop()
-
+        stdscr.refresh()
+        time.sleep(0.05)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", "--porta", type=int, default=5000)
+    parser.add_argument("--bootstrap", type=str, nargs='?', help="IP:Porta de um nó existente")
+    args = parser.parse_args()
+    try:
+        no = No("localhost", args.port); no.iniciar()
+        if args.bootstrap: no.sincronizar(args.bootstrap)
+        curses.wrapper(iniciar_tui, no)
+    except Exception as e:
+        print(f"\n[!] Erro: {e}")
+    finally:
+        if 'no' in locals(): no.rodando = False
