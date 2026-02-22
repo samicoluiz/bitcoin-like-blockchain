@@ -168,11 +168,12 @@ def iniciar_tui(stdscr, no):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("--host", type=str, default="localhost", help="IP para escutar (use seu IP local para rede externa)")
     parser.add_argument("--port", "--porta", type=int, default=5000)
     parser.add_argument("--bootstrap", type=str, nargs='?', help="IP:Porta de um nó existente")
     args = parser.parse_args()
     try:
-        no = No("localhost", args.port); no.iniciar()
+        no = No(args.host, args.port); no.iniciar()
         if args.bootstrap: no.sincronizar(args.bootstrap)
         curses.wrapper(iniciar_tui, no)
     except Exception as e:

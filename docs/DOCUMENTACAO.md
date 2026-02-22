@@ -4,7 +4,7 @@
 
 Sistema distribuído de criptomoeda simplificado (Bitcoin-like) implementado em Python puro, com interface TUI (Terminal User Interface). A arquitetura foi simplificada para minimizar dependências e facilitar a interoperabilidade.
 
-**Equipe:** Luiz Antonio, Max
+**Equipe:** Luiz Samico, Wesley
 
 ---
 
