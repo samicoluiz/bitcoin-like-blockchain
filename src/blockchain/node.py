@@ -9,7 +9,18 @@ class No:
     def __init__(self, host, porta):
         self.host = host
         self.porta = porta
-        self.endereco = f"{host}:{porta}"
+        # Se usar 0.0.0.0, descobre o IP real para se identificar na rede
+        identificacao = host
+        if host == "0.0.0.0":
+            try:
+                s_temp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s_temp.connect(("8.8.8.8", 80))
+                identificacao = s_temp.getsockname()[0]
+                s_temp.close()
+            except:
+                identificacao = "127.0.0.1"
+        
+        self.endereco = f"{identificacao}:{porta}"
         self.blockchain = Blockchain()
         self.peers = set()
         self.rodando = True

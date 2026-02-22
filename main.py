@@ -40,7 +40,7 @@ def iniciar_tui(stdscr, no):
 
         try:
             # Cabeçalho Principal (Usando largura-1 para evitar erro de borda do curses)
-            status_line = f" ₿ BITCOIN LAB-DIST | NÓ: {no.endereco} | BLOCOS: {len(no.blockchain.cadeia)} | PEERS: {len(no.peers)} "
+            status_line = f" ₿ LAB-DIST | NÓ: {no.endereco} | BLOCOS: {len(no.blockchain.cadeia)} | PEERS: {len(no.peers)} "
             stdscr.attron(curses.A_BOLD | curses.color_pair(2))
             stdscr.addstr(0, 0, status_line[:largura-1].ljust(largura-1), curses.A_REVERSE)
             stdscr.attroff(curses.A_BOLD | curses.color_pair(2))
