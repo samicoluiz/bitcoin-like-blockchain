@@ -7,7 +7,7 @@ class Bloco:
     def __init__(self, index, previous_hash, transactions, nonce=0, timestamp=None, hash=""):
         self.index = index
         self.previous_hash = previous_hash
-        self.transactions = transactions # Lista de objetos Transacao
+        self.transactions = transactions
         self.nonce = nonce
         self.timestamp = timestamp if timestamp is not None else time.time()
         self.hash = hash or self.calcular_hash()

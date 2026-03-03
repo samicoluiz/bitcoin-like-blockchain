@@ -27,7 +27,6 @@ class Blockchain:
     def adicionar_transacao(self, tx):
         if tx.valor <= 0: return False, "Valor não positivo"
         
-        # Evita propagação infinita e duplicidade
         if any(t.id == tx.id for t in self.transacoes_pendentes):
             return False, "Duplicada"
         for bloco in self.cadeia:
@@ -42,7 +41,6 @@ class Blockchain:
 
     def adicionar_bloco(self, bloco):
         anterior = self.ultimo_bloco
-        # Evita adicionar bloco que já temos ou bloco antigo
         if bloco.index <= anterior.index: return False
         
         if bloco.index == anterior.index + 1 and \

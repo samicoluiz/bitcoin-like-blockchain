@@ -9,7 +9,6 @@ class No:
     def __init__(self, host, porta):
         self.host = host
         self.porta = porta
-        # Se usar 0.0.0.0, descobre o IP real para se identificar na rede
         identificacao = host
         if host == "0.0.0.0":
             try:
@@ -75,7 +74,6 @@ class No:
 
         if tipo == "NEW_TRANSACTION":
             tx = Transacao.de_dict(payload["transaction"])
-            # adicionar_transacao agora retorna False para duplicadas, parando o loop
             sucesso, msg = self.blockchain.adicionar_transacao(tx)
             if sucesso:
                 self.log(f"[TX] {tx.id[:8]} recebida")
@@ -165,7 +163,6 @@ class No:
         except: pass
 
     def transmitir(self, mensagem, excluir=None):
-        # Cria uma cópia da mensagem para não alterar o 'sender' original para os outros
         msg_copy = mensagem.copy()
         msg_copy["sender"] = self.endereco
         for peer in list(self.peers):

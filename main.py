@@ -13,22 +13,20 @@ from blockchain.transaction import Transacao
 from blockchain.block import Bloco
 
 def iniciar_tui(stdscr, no):
-    # Configurações de exibição
     curses.curs_set(0)
     stdscr.nodelay(1)
     
     if curses.has_colors():
         curses.start_color()
-        curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK) # Sucesso
-        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)  # Header
-        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)# Alerta
-        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_BLACK)   # Erro
+        curses.init_pair(1, curses.COLOR_GREEN, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_RED, curses.COLOR_BLACK)
 
     while True:
         stdscr.erase()
         altura, largura = stdscr.getmaxyx()
 
-        # Proteção contra telas muito pequenas
         if altura < 16 or largura < 60:
             try:
                 stdscr.addstr(0, 0, "Aumente o tamanho da janela!", curses.color_pair(4) | curses.A_BOLD)
@@ -39,13 +37,11 @@ def iniciar_tui(stdscr, no):
             continue
 
         try:
-            # Cabeçalho Principal (Usando largura-1 para evitar erro de borda do curses)
             status_line = f" ₿ LAB-DIST | NÓ: {no.endereco} | BLOCOS: {len(no.blockchain.cadeia)} | PEERS: {len(no.peers)} "
             stdscr.attron(curses.A_BOLD | curses.color_pair(2))
             stdscr.addstr(0, 0, status_line[:largura-1].ljust(largura-1), curses.A_REVERSE)
             stdscr.attroff(curses.A_BOLD | curses.color_pair(2))
 
-            # Menu Dividido
             stdscr.addstr(2, 2, "--- OPERAÇÕES ---", curses.color_pair(1))
             stdscr.addstr(3, 2, " [T] Transferir Moedas")
             stdscr.addstr(4, 2, " [M] Minerar Novo Bloco")
@@ -58,19 +54,16 @@ def iniciar_tui(stdscr, no):
             stdscr.addstr(11, 2, " [C] Conectar a Peer")
             stdscr.addstr(13, 2, " [Q] Sair do Sistema")
 
-            # Janela de Atividade (Logs)
             log_start_x = largura // 2
             stdscr.addstr(2, log_start_x, "--- ATIVIDADE DA REDE ---", curses.color_pair(3))
             for i, log in enumerate(no.logs[-12:]):
                 texto_log = f" {log}"[:largura - log_start_x - 1]
                 stdscr.addstr(3 + i, log_start_x, texto_log)
 
-            # Rodapé
             stdscr.addstr(altura-1, 0, " Pressione a tecla correspondente para agir. ".ljust(largura-1), curses.A_REVERSE)
         except curses.error:
             pass
 
-        # Processar Entrada
         c = stdscr.getch()
         if c != -1:
             try:
@@ -78,7 +71,6 @@ def iniciar_tui(stdscr, no):
                 if key == 'q': break
                 
                 elif key in ['t', 's', 'c']:
-                    # MODO DE ENTRADA BLOQUEANTE (Para evitar pular campos)
                     stdscr.nodelay(0)
                     curses.echo()
                     curses.curs_set(1)
@@ -121,17 +113,15 @@ def iniciar_tui(stdscr, no):
                         peer_addr = stdscr.getstr().decode('utf-8').strip()
                         if peer_addr: no.sincronizar(peer_addr)
 
-                    # VOLTA PARA O MODO NORMAL
                     curses.noecho()
                     curses.curs_set(0)
                     stdscr.nodelay(1)
 
-                elif key == 'm': # Mineração COM RECOMPENSA
+                elif key == 'm':
                     def minerar_task():
                         no.log("[*] Minerando...")
                         ant = no.blockchain.ultimo_bloco
                         
-                        # RECOMPENSA COINBASE
                         recompensa = Transacao("coinbase", no.endereco, 50.0)
                         txs = [recompensa] + no.blockchain.transacoes_pendentes.copy()
                         
@@ -146,19 +136,16 @@ def iniciar_tui(stdscr, no):
                         else: no.log("[!] Bloco rejeitado")
                     threading.Thread(target=minerar_task, daemon=True).start()
 
-                elif key == 'p': # Pool
+                elif key == 'p':
                     no.log(f"[POOL] {len(no.blockchain.transacoes_pendentes)} transações")
                     for tx in no.blockchain.transacoes_pendentes[:3]:
                         no.log(f" - {tx.origem[:5]}->{tx.destino[:5]}: {tx.valor}")
 
-                elif key == 's' and False: # (Não entra aqui, já tratado acima)
-                    pass
-
-                elif key == 'b': # Blockchain
+                elif key == 'b':
                     for b in no.blockchain.cadeia[-3:]:
                         no.log(f"[BLOCK] #{b.index} | Hash: {b.hash[:16]}...")
 
-                elif key == 'l': # Lista de Peers
+                elif key == 'l':
                     no.log(f"[REDE] Peers: {list(no.peers)}")
 
             except: pass
