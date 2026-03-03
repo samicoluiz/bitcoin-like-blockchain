@@ -4,26 +4,26 @@
 
 Sistema distribuído de criptomoeda simplificado (Bitcoin-like) implementado em Python puro, com interface TUI (Terminal User Interface). A arquitetura foi simplificada para minimizar dependências e facilitar a interoperabilidade.
 
-**Equipe:** Luiz Samico, Wesley
+**Equipe:** Luiz Samico, Wesley Barbosa
 
 ---
 
 ## Arquitetura do Sistema
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────┐
 │                         main.py                              │
 │      - Interface TUI (Curses)                                │
 │      - Tarefa de Mineração (Thread Dedicada)                 │
-└─────────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────────┘
                │                        │
                ▼                        ▼
-┌───────────────────────────┐    ┌────────────────────────────┐
+┌───────────────────────────┐    ┌─────────────────────────────┐
 │      No (node.py)         │    │  Blockchain (blockchain.py) │
 │ - Servidor TCP (Sockets)  │◄───┤ - Validação de Cadeia       │
 │ - Protocolo JSON Integrado│    │ - Cálculo de Saldo          │
 │ - Descoberta P2P Dinâmica │    │ - Gerenciamento de Pool     │
-└───────────────────────────┘    └────────────────────────────┘
+└───────────────────────────┘    └─────────────────────────────┘
                │                        │
                └───────────┬────────────┘
                            ▼
